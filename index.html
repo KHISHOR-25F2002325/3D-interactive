@@ -16,12 +16,16 @@
 
         * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
         body, html {
-            width: 100%; background-color: #010103;
+            width: 100%; height: 100%; background-color: #010103;
             font-family: 'Space Grotesk', sans-serif; color: #fff;
             overflow-x: hidden; font-size: 16px;
         }
 
-        #webgl-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+        #webgl-container { 
+            position: fixed; top: 0; left: 0; 
+            width: 100vw; height: 100vh; 
+            z-index: 1; display: block;
+        }
 
         /* --- IMMERSIVE HUD OVERLAY --- */
         .hud-system {
@@ -223,217 +227,220 @@
     </script>
 
     <script>
-        // --- 1. SETUP GRAPHICS COMPILING ENGINE ---
-        const container = document.getElementById('webgl-container');
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(54, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z = 4.5;
+        // --- SAFE INITIALIZATION ENGINE WRAPPER ---
+        window.onload = function() {
+            const container = document.getElementById('webgl-container');
+            if(!container) return;
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        container.appendChild(renderer.domElement);
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(54, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 4.5;
 
-        // --- 2. INSTANTIATE HIGH MASS FLUID SPLINE RIBBONS ---
-        const particleCount = 28000;
-        const geometry = new THREE.BufferGeometry();
-        const basePositions = new Float32Array(particleCount * 3);
-        const colors = new Float32Array(particleCount * 3);
+            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
 
-        const primeColorHex = new THREE.Color('#00f3ff');
-        const altColorHex = new THREE.Color('#ff0055');
-        const middlePurpleHex = new THREE.Color('#bd00ff');
+            // --- INSTANTIATE HIGH MASS FLUID SPLINE RIBBONS ---
+            const particleCount = 28000;
+            const geometry = new THREE.BufferGeometry();
+            const basePositions = new Float32Array(particleCount * 3);
+            const colors = new Float32Array(particleCount * 3);
 
-        for (let i = 0; i < particleCount; i++) {
-            const i3 = i * 3;
+            const primeColorHex = new THREE.Color('#00f3ff');
+            const altColorHex = new THREE.Color('#ff0055');
+            const middlePurpleHex = new THREE.Color('#bd00ff');
 
-            const theta = Math.random() * Math.PI * 2.0;
-            const radiusSpread = Math.pow(Math.random(), 0.8) * 2.2 + 0.1;
+            for (let i = 0; i < particleCount; i++) {
+                const i3 = i * 3;
+                const theta = Math.random() * Math.PI * 2.0;
+                const radiusSpread = Math.pow(Math.random(), 0.8) * 2.2 + 0.1;
 
-            basePositions[i3]     = Math.cos(theta) * radiusSpread;
-            basePositions[i3 + 1] = Math.sin(theta) * radiusSpread;
-            basePositions[i3 + 2] = (Math.random() - 0.5) * 2.0;
+                basePositions[i3]     = Math.cos(theta) * radiusSpread;
+                basePositions[i3 + 1] = Math.sin(theta) * radiusSpread;
+                basePositions[i3 + 2] = (Math.random() - 0.5) * 2.0;
 
-            let finalSelectionColor;
-            const colorRnd = Math.random();
-            if(colorRnd < 0.35) {
-                finalSelectionColor = primeColorHex.clone().lerp(middlePurpleHex, Math.random());
-            } else {
-                finalSelectionColor = middlePurpleHex.clone().lerp(altColorHex, Math.random());
-            }
-
-            colors[i3]     = finalSelectionColor.r;
-            colors[i3 + 1] = finalSelectionColor.g;
-            colors[i3 + 2] = finalSelectionColor.b;
-        }
-
-        geometry.setAttribute('position', new THREE.BufferAttribute(basePositions, 3));
-        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-        // --- 3. BIND INTERACTIVE GPU SHADERS LAYER ---
-        const customMaterial = new THREE.ShaderMaterial({
-            uniforms: {
-                uTime: { value: 0 },
-                uScrollProgress: { value: 0 },
-                uDensityModifier: { value: 1.0 },
-                uMouse: { value: new THREE.Vector2(0, 0) }
-            },
-            vertexShader: document.getElementById('vertexShader').textContent,
-            fragmentShader: document.getElementById('fragmentShader').textContent,
-            transparent: true,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            vertexColors: true
-        });
-
-        const anomalousSystemField = new THREE.Points(geometry, customMaterial);
-        scene.add(anomalousSystemField);
-
-        // --- 4. FLUID MOUSE POINTER TRACKING & STASIS METRICS ---
-        const targetMouse = new THREE.Vector2(0, 0);
-        let stasisCharge = 0;
-        let lastMouseX = 0;
-        let lastMouseY = 0;
-        let mouseVelocity = 0;
-        let isStasisComplete = false;
-        let absoluteTimeCounter = 0;
-
-        window.addEventListener('mousemove', (event) => {
-            targetMouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-            targetMouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-            let currentX = targetMouse.x;
-            let currentY = targetMouse.y;
-            mouseVelocity = Math.sqrt(Math.pow(currentX - lastMouseX, 2) + Math.pow(currentY - lastMouseY, 2));
-            lastMouseX = currentX;
-            lastMouseY = currentY;
-        });
-
-        // --- 5. AUTOMATED GSAP TIMELINE SCROLL SCENOGRAPHY ---
-        gsap.registerPlugin(ScrollTrigger);
-
-        gsap.to("#progressBar", {
-            width: "100%", ease: "none",
-            scrollTrigger: { trigger: ".content-layer", start: "top top", end: "bottom bottom", scrub: true }
-        });
-
-        const globalTimeline = gsap.timeline({
-            scrollTrigger: {
-                trigger: ".content-layer", start: "top top", end: "bottom bottom", scrub: 1.4
-            }
-        });
-
-        globalTimeline.to(customMaterial.uniforms.uScrollProgress, { value: 1.0, ease: "power2.inOut" }, 0)
-                      .to(anomalousSystemField.rotation, { x: Math.PI * 0.8, y: Math.PI * 1.2, z: Math.PI * 0.4 }, 0)
-                      .to("#heroTitle", { opacity: 0, scale: 0.9, y: -30, filter: "blur(10px)" }, 0)
-                      .to(camera.position, { z: 3.5, y: -0.2, ease: "power1.inOut" }, 0.5);
-
-        // --- 6. FIELD MODIFIER INTERACTION METHODS ---
-        window.updateFieldDensity = (val) => {
-            document.getElementById('sliderVal').innerText = val + "x";
-            document.getElementById('hudComplexity').innerText = Math.floor(val * 100) + "%";
-            gsap.to(customMaterial.uniforms.uDensityModifier, { value: val, duration: 0.4 });
-        };
-
-        window.triggerQuantumFlash = () => {
-            let flashTimeline = gsap.timeline();
-            flashTimeline.to(customMaterial.uniforms.uDensityModifier, { value: 6.0, duration: 0.3, ease: "power4.out" })
-                         .to(anomalousSystemField.rotation, { z: anomalousSystemField.rotation.z + 2.0, duration: 0.6, ease: "expo.out" }, 0)
-                         .to(customMaterial.uniforms.uDensityModifier, { value: document.getElementById('densitySlider').value, duration: 1.2, ease: "power2.out" });
-        };
-
-        // --- 7. HARDWARE PERFORMANCE RENDERING TICK SCHEDULER LOOP ---
-        const coreOperationalClock = new THREE.Clock();
-
-        const processFrameRenderPass = () => {
-            requestAnimationFrame(processFrameRenderPass);
-            
-            const deltaFrameTime = coreOperationalClock.getDelta();
-            const currentScrollPosition = customMaterial.uniforms.uScrollProgress.value;
-            
-            if (currentScrollPosition > 0.85) {
-                if (!isStasisComplete) {
-                    if (mouseVelocity < 0.005) {
-                        stasisCharge = Math.min(stasisCharge + 0.65, 100);
-                    } else {
-                        stasisCharge = Math.max(stasisCharge - 1.5, 0);
-                    }
-                    
-                    document.getElementById('stasisPercent').innerText = Math.floor(stasisCharge) + "%";
-                    document.getElementById('stasisBar').style.width = stasisCharge + "%";
-                    
-                    if(stasisCharge > 0) {
-                        document.getElementById('stasisStatus').innerText = `>> LOCKING MATRIX: CALIBRATING FIELDS (${Math.floor(stasisCharge)}%)`;
-                        document.getElementById('stasisStatus').style.color = "var(--neon-prime)";
-                    } else {
-                        document.getElementById('stasisStatus').innerText = ">> System status: Scanning velocity...";
-                        document.getElementById('stasisStatus').style.color = "#4b4d61";
-                    }
-                    
-                    if (stasisCharge === 100) {
-                        isStasisComplete = true;
-                        document.getElementById('stasisStatus').innerText = ">> CAPTURE MATRIX ATTACHED PROTOCOL STATUS: ONLINE";
-                        document.getElementById('stasisStatus').style.color = "#00ff66";
-                        document.getElementById('stasisCard').style.borderColor = "#00ff66";
-                        document.getElementById('stasisBar').style.background = "#00ff66";
-                        
-                        const payload = document.getElementById('decryptedPayload');
-                        payload.style.maxHeight = "120px";
-                        payload.style.opacity = "1";
-                        payload.style.paddingTop = "15px";
-                        
-                        gsap.to(camera.position, { z: 2.2, duration: 2.5, ease: "expo.out" });
-                    }
+                let finalSelectionColor;
+                const colorRnd = Math.random();
+                if(colorRnd < 0.35) {
+                    finalSelectionColor = primeColorHex.clone().lerp(middlePurpleHex, Math.random());
                 } else {
-                    // STASIS RELEASE DISRUPTION SYSTEM
-                    if (mouseVelocity > 0.06) {
-                        isStasisComplete = false;
-                        stasisCharge = 0;
+                    finalSelectionColor = middlePurpleHex.clone().lerp(altColorHex, Math.random());
+                }
+
+                colors[i3]     = finalSelectionColor.r;
+                colors[i3 + 1] = finalSelectionColor.g;
+                colors[i3 + 2] = finalSelectionColor.b;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(basePositions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            // --- BIND INTERACTIVE GPU SHADERS LAYER ---
+            const customMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uScrollProgress: { value: 0 },
+                    uDensityModifier: { value: 1.0 },
+                    uMouse: { value: new THREE.Vector2(0, 0) }
+                },
+                vertexShader: document.getElementById('vertexShader').textContent,
+                fragmentShader: document.getElementById('fragmentShader').textContent,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                vertexColors: true
+            });
+
+            const anomalousSystemField = new THREE.Points(geometry, customMaterial);
+            scene.add(anomalousSystemField);
+
+            // --- FLUID MOUSE POINTER TRACKING & STASIS METRICS ---
+            const targetMouse = new THREE.Vector2(0, 0);
+            let stasisCharge = 0;
+            let lastMouseX = 0;
+            let lastMouseY = 0;
+            let mouseVelocity = 0;
+            let isStasisComplete = false;
+            let absoluteTimeCounter = 0;
+
+            window.addEventListener('mousemove', (event) => {
+                targetMouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                targetMouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+                let currentX = targetMouse.x;
+                let currentY = targetMouse.y;
+                mouseVelocity = Math.sqrt(Math.pow(currentX - lastMouseX, 2) + Math.pow(currentY - lastMouseY, 2));
+                lastMouseX = currentX;
+                lastMouseY = currentY;
+            });
+
+            // --- AUTOMATED GSAP TIMELINE SCROLL SCENOGRAPHY ---
+            gsap.registerPlugin(ScrollTrigger);
+
+            gsap.to("#progressBar", {
+                width: "100%", ease: "none",
+                scrollTrigger: { trigger: ".content-layer", start: "top top", end: "bottom bottom", scrub: true }
+            });
+
+            const globalTimeline = gsap.timeline({
+                scrollTrigger: {
+                    trigger: ".content-layer", start: "top top", end: "bottom bottom", scrub: 1.4
+                }
+            });
+
+            globalTimeline.to(customMaterial.uniforms.uScrollProgress, { value: 1.0, ease: "power2.inOut" }, 0)
+                          .to(anomalousSystemField.rotation, { x: Math.PI * 0.8, y: Math.PI * 1.2, z: Math.PI * 0.4 }, 0)
+                          .to("#heroTitle", { opacity: 0, scale: 0.9, y: -30, filter: "blur(10px)" }, 0)
+                          .to(camera.position, { z: 3.5, y: -0.2, ease: "power1.inOut" }, 0.5);
+
+            // --- FIELD MODIFIER INTERACTION METHODS ---
+            window.updateFieldDensity = (val) => {
+                document.getElementById('sliderVal').innerText = val + "x";
+                document.getElementById('hudComplexity').innerText = Math.floor(val * 100) + "%";
+                gsap.to(customMaterial.uniforms.uDensityModifier, { value: val, duration: 0.4 });
+            };
+
+            window.triggerQuantumFlash = () => {
+                let flashTimeline = gsap.timeline();
+                flashTimeline.to(customMaterial.uniforms.uDensityModifier, { value: 6.0, duration: 0.3, ease: "power4.out" })
+                             .to(anomalousSystemField.rotation, { z: anomalousSystemField.rotation.z + 2.0, duration: 0.6, ease: "expo.out" }, 0)
+                             .to(customMaterial.uniforms.uDensityModifier, { value: document.getElementById('densitySlider').value, duration: 1.2, ease: "power2.out" });
+            };
+
+            // --- HARDWARE PERFORMANCE RENDERING TICK SCHEDULER LOOP ---
+            const coreOperationalClock = new THREE.Clock();
+
+            const processFrameRenderPass = () => {
+                requestAnimationFrame(processFrameRenderPass);
+                
+                const deltaFrameTime = coreOperationalClock.getDelta();
+                const currentScrollPosition = customMaterial.uniforms.uScrollProgress.value;
+                
+                if (currentScrollPosition > 0.85) {
+                    if (!isStasisComplete) {
+                        if (mouseVelocity < 0.005) {
+                            stasisCharge = Math.min(stasisCharge + 0.65, 100);
+                        } else {
+                            stasisCharge = Math.max(stasisCharge - 1.5, 0);
+                        }
                         
-                        document.getElementById('stasisPercent').innerText = "0%";
-                        document.getElementById('stasisBar').style.width = "0%";
-                        document.getElementById('stasisBar').style.background = "linear-gradient(90deg, var(--neon-prime), var(--quantum-purple))";
-                        document.getElementById('stasisStatus').innerText = ">> WARNING: STASIS FIELD DISRUPTED KINETICALLY";
-                        document.getElementById('stasisStatus').style.color = "var(--neon-alt)";
-                        document.getElementById('stasisCard').style.borderColor = "var(--neon-alt)";
+                        document.getElementById('stasisPercent').innerText = Math.floor(stasisCharge) + "%";
+                        document.getElementById('stasisBar').style.width = stasisCharge + "%";
                         
-                        const payload = document.getElementById('decryptedPayload');
-                        payload.style.maxHeight = "0px";
-                        payload.style.opacity = "0";
-                        payload.style.paddingTop = "0px";
+                        if(stasisCharge > 0) {
+                            document.getElementById('stasisStatus').innerText = `>> LOCKING MATRIX: CALIBRATING FIELDS (${Math.floor(stasisCharge)}%)`;
+                            document.getElementById('stasisStatus').style.color = "var(--neon-prime)";
+                        } else {
+                            document.getElementById('stasisStatus').innerText = ">> System status: Scanning velocity...";
+                            document.getElementById('stasisStatus').style.color = "#4b4d61";
+                        }
                         
-                        gsap.to(camera.position, { z: 3.5, duration: 1.2, ease: "power3.out" });
-                        
-                        let breakdownTimeline = gsap.timeline();
-                        breakdownTimeline.to(customMaterial.uniforms.uDensityModifier, { value: 4.0, duration: 0.2 })
-                                         .to(customMaterial.uniforms.uDensityModifier, { value: document.getElementById('densitySlider').value, duration: 1.5, ease: "power2.out" });
+                        if (stasisCharge === 100) {
+                            isStasisComplete = true;
+                            document.getElementById('stasisStatus').innerText = ">> CAPTURE MATRIX ATTACHED PROTOCOL STATUS: ONLINE";
+                            document.getElementById('stasisStatus').style.color = "#00ff66";
+                            document.getElementById('stasisCard').style.borderColor = "#00ff66";
+                            document.getElementById('stasisBar').style.background = "#00ff66";
+                            
+                            const payload = document.getElementById('decryptedPayload');
+                            payload.style.maxHeight = "120px";
+                            payload.style.opacity = "1";
+                            payload.style.paddingTop = "15px";
+                            
+                            gsap.to(camera.position, { z: 2.2, duration: 2.5, ease: "expo.out" });
+                        }
+                    } else {
+                        // STASIS RELEASE DISRUPTION SYSTEM
+                        if (mouseVelocity > 0.06) {
+                            isStasisComplete = false;
+                            stasisCharge = 0;
+                            
+                            document.getElementById('stasisPercent').innerText = "0%";
+                            document.getElementById('stasisBar').style.width = "0%";
+                            document.getElementById('stasisBar').style.background = "linear-gradient(90deg, var(--neon-prime), var(--quantum-purple))";
+                            document.getElementById('stasisStatus').innerText = ">> WARNING: STASIS FIELD DISRUPTED KINETICALLY";
+                            document.getElementById('stasisStatus').style.color = "var(--neon-alt)";
+                            document.getElementById('stasisCard').style.borderColor = "var(--neon-alt)";
+                            
+                            const payload = document.getElementById('decryptedPayload');
+                            payload.style.maxHeight = "0px";
+                            payload.style.opacity = "0";
+                            payload.style.paddingTop = "0px";
+                            
+                            gsap.to(camera.position, { z: 3.5, duration: 1.2, ease: "power3.out" });
+                            
+                            let breakdownTimeline = gsap.timeline();
+                            breakdownTimeline.to(customMaterial.uniforms.uDensityModifier, { value: 4.0, duration: 0.2 })
+                                             .to(customMaterial.uniforms.uDensityModifier, { value: document.getElementById('densitySlider').value, duration: 1.5, ease: "power2.out" });
+                        }
                     }
                 }
-            }
-            
-            const currentSpeedDampingMultiplier = 1.0 - (stasisCharge / 100) * 0.98;
-            absoluteTimeCounter += deltaFrameTime * currentSpeedDampingMultiplier;
-            
-            customMaterial.uniforms.uTime.value = absoluteTimeCounter;
+                
+                const currentSpeedDampingMultiplier = 1.0 - (stasisCharge / 100) * 0.98;
+                absoluteTimeCounter += deltaFrameTime * currentSpeedDampingMultiplier;
+                
+                customMaterial.uniforms.uTime.value = absoluteTimeCounter;
 
-            anomalousSystemField.rotation.y += 0.001 * currentSpeedDampingMultiplier;
-            anomalousSystemField.rotation.x += 0.0004 * currentSpeedDampingMultiplier;
+                anomalousSystemField.rotation.y += 0.001 * currentSpeedDampingMultiplier;
+                anomalousSystemField.rotation.x += 0.0004 * currentSpeedDampingMultiplier;
 
-            customMaterial.uniforms.uMouse.value.x += (targetMouse.x - customMaterial.uniforms.uMouse.value.x) * 0.06;
-            customMaterial.uniforms.uMouse.value.y += (targetMouse.y - customMaterial.uniforms.uMouse.value.y) * 0.06;
+                customMaterial.uniforms.uMouse.value.x += (targetMouse.x - customMaterial.uniforms.uMouse.value.x) * 0.06;
+                customMaterial.uniforms.uMouse.value.y += (targetMouse.y - customMaterial.uniforms.uMouse.value.y) * 0.06;
 
-            mouseVelocity *= 0.92;
+                mouseVelocity *= 0.92;
 
-            renderer.render(scene, camera);
+                renderer.render(scene, camera);
+            };
+
+            processFrameRenderPass();
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
         };
-
-        processFrameRenderPass();
-
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
     </script>
 </body>
 </html>
